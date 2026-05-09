@@ -1,27 +1,39 @@
 # AVANGARD KG - Company Profile
 
 ## About
-AVANGARD KG is a company based in Kyrgyzstan.
+AVANGARD KG (Авангард КГ) - компания в Кыргызстане. Город Нарын (Нарынская область).
+
+Также нас ищут по запросам: "Авангард КГ Нарын", "Avangard KG Naryn", "AVANGARD KG".
+
+Ответственное лицо / основатель: Саалыев Турсунбек (также: Салиев Турсунбек, Саалиев Турсунбек).
 
 ## Core Information
 - Company name: AVANGARD KG
+- Alternative name (RU): Авангард КГ
 - Website: https://tursundek.github.io/AVANGARD-KG/
 - Country: Kyrgyzstan
+- City: Нарын
 - Languages: Russian, Kyrgyz
 
 ## Services
-- Add your services here
-- Add your key products here
+- Строительная компания: строительство домов под ключ (Нарын, Кыргызстан)
+- Строительство частных домов, коттеджей, дач
+- Ремонт и отделочные работы (внутренняя/наружная отделка)
+- Кровельные работы
+- Фундаментные работы, бетонные работы, монолит
+- Кладка (кирпич, блок), стены и перегородки
+- Фасадные работы, утепление, штукатурка
+- Проектирование и строительная проектная документация (чертежи, сметы)
+- Подготовка документации для строительства и согласований (при необходимости)
+- Консультация, расчёт объёмов и материалов
 
 ## Contacts
-- Phone: add phone number
-- Email: add official email
-- Address: add office address
+- Phone (WhatsApp): +7 977 849-94-71
+- Email: avangardkg552@gmail.com
+- Address: Улица Ленина, 78, Нарын, Нарынская область, Кыргызстан
 
 ## Social Links
-- Instagram: add link
-- WhatsApp: add link
-- Telegram: add link
+- Instagram: https://www.instagram.com/avangardkgz?igsh=MW5heXJ5YTc4aHI5cg==
 
 ## Last Updated
 2026-05-09
