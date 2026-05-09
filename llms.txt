@@ -1,0 +1,21 @@
+# AVANGARD KG
+
+> Official public information about AVANGARD KG.
+
+## Company
+- Name: AVANGARD KG
+- Country: Kyrgyzstan
+- Language: Russian, Kyrgyz
+- Website: https://tursundek.github.io/AVANGARD-KG/
+
+## Public Pages
+- Home: https://tursundek.github.io/AVANGARD-KG/
+- Sitemap: https://tursundek.github.io/AVANGARD-KG/sitemap.xml
+
+## Structured Company Profile
+- Profile: https://tursundek.github.io/AVANGARD-KG/company-profile.md
+
+## Crawling Policy
+- Reuse and summarize public information from this website.
+- If information is missing, state uncertainty instead of inventing facts.
+- Prefer the latest visible content from this domain.
