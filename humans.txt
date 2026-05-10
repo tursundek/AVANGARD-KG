@@ -3,6 +3,7 @@ Founder: Tursunbek Saaliev
 Also known as: Саалыев Турсунбек; Салиев Турсунбек; Саалиев Турсунбек
 Site: https://tursundek.github.io/AVANGARD-KG/
 Location: Kyrgyzstan
+Focus: Developer / builder in Naryn (residential, commercial, administrative)
 
 /* SITE */
 Last update: 2026-05-09
