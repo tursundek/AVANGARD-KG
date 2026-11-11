@@ -48,3 +48,4 @@ Allow: /
 # https://tursundek.github.io/AVANGARD-KG/llms.txt
 
 Sitemap: https://tursundek.github.io/AVANGARD-KG/sitemap.xml
+Sitemap: https://tursundek.github.io/AVANGARD-KG/pages.xml
