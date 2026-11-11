@@ -144,7 +144,7 @@ Avangard KG,
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1800&q=85">
-  <link rel="stylesheet" href="assets/app.css?v=16">
+  <link rel="stylesheet" href="assets/app.css?v=21">
   <script>
     // Enables entrance styles only when scripts run; text stays visible otherwise.
     (function(){
@@ -154,7 +154,7 @@ Avangard KG,
         sessionStorage.setItem('avIntro','1');
         // The intro collapses into the black hole, so it needs the hole's screen position.
         var w=innerWidth,h=innerHeight,x,y;
-        if(w<=700){x=w-58;y=Math.max(150,h*.19);}else{
+        if(w<=700){x=w*.72;y=262;}else{
           // Same placement as cosmos.js: the hole may rise to leave room for the crane.
           var R=Math.min(72,Math.max(40,w*.042)),gap=R*2.6,base=h*.97;
           x=w-Math.min(360,Math.max(160,w*.19));y=h*.59;
@@ -666,7 +666,7 @@ Avangard KG,
     </a>
   </div>
 
-  <script src="assets/cosmos.js?v=10" defer></script>
+  <script src="assets/cosmos.js?v=13" defer></script>
   <script src="assets/app.js?v=13" defer></script>
 </body>
 </html>
