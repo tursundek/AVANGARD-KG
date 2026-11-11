@@ -202,38 +202,53 @@
 
   const measureMarquee = () => { groupW = tracks.map(t => t.firstElementChild ? t.firstElementChild.offsetWidth : 1); };
 
+  // Writes a CSS variable only when its value actually changed (saves style recalculation).
+  const varCache = new WeakMap();
+  function setVar(el, name, val) {
+    let m = varCache.get(el);
+    if (!m) { m = {}; varCache.set(el, m); }
+    if (m[name] !== val) { m[name] = val; el.style.setProperty(name, val); }
+  }
+  function setAttr(el, name, val) { if (el.getAttribute(name) !== val) el.setAttribute(name, val); }
+
   function scene(now) {
     frame = 0;
+    // Read phase: every layout measurement happens first, so the browser lays out the page once.
     const y = scrollY, vh = innerHeight;
     const max = Math.max(1, root.scrollHeight - vh);
+    const footTop = footerEl ? footerEl.getBoundingClientRect().top : Infinity;
+    const pr = processEl ? processEl.getBoundingClientRect() : null;
+    const hr = heroMedia.getBoundingClientRect();
+    const ar = aboutImg ? aboutImg.parentElement.getBoundingClientRect() : null;
+    const qr = quoteWords.length ? quote.getBoundingClientRect() : null;
+    const sr = reduced ? [] : services.map(c => c.getBoundingClientRect());
+    const secTops = sections.map(s => s.getBoundingClientRect().top);
+    const sideTops = sideSections.map(s => s.getBoundingClientRect().top);
+
+    // Write phase.
     body.classList.toggle('is-scrolled', y > 20);
     body.classList.toggle('past-hero', y > vh * 0.45);
-    if (footerEl) body.classList.toggle('at-footer', footerEl.getBoundingClientRect().top < vh * 0.98);
-    if (progressBar) progressBar.style.transform = `scaleX(${clamp(y / max, 0, 1)})`;
+    body.classList.toggle('at-footer', footTop < vh * 0.98);
+    if (progressBar) progressBar.style.transform = `scaleX(${clamp(y / max, 0, 1).toFixed(4)})`;
 
     // Full-cycle line fills while the block crosses the screen; steps light up in turn.
-    if (processEl) {
-      const pr = processEl.getBoundingClientRect();
+    if (pr) {
       const t = reduced ? 1 : clamp((vh * 0.8 - pr.top) / (pr.height * 0.8 + vh * 0.2), 0, 1);
-      processEl.style.setProperty('--prog', t.toFixed(4));
+      setVar(processEl, '--prog', t.toFixed(3));
       processSteps.forEach((s, i) => s.classList.toggle('on', t > 0.02 && t >= i / (processSteps.length - 1) - 0.02));
     }
 
     if (!reduced) {
-      // Hero photo opens to full width as it reaches the top.
-      const r = heroMedia.getBoundingClientRect();
-      const p = clamp(1 - (r.top - vh * 0.12) / (vh * 0.6), 0, 1);
-      heroMedia.style.setProperty('--p', p.toFixed(4));
-      if (r.bottom > 0 && r.top < vh) heroImg.style.setProperty('--y', (-r.top * 0.12 - 40).toFixed(1));
-
-      if (aboutImg) {
-        const ar = aboutImg.parentElement.getBoundingClientRect();
-        if (ar.bottom > 0 && ar.top < vh) aboutImg.style.setProperty('--py', (((ar.top + ar.height / 2) - vh / 2) * -0.08).toFixed(1));
+      // Hero photo opens to full width as it reaches the top (only while it is on screen).
+      if (hr.bottom > 0 && hr.top < vh * 1.2) {
+        const p = clamp(1 - (hr.top - vh * 0.12) / (vh * 0.6), 0, 1);
+        setVar(heroMedia, '--p', p.toFixed(3));
+        setVar(heroImg, '--y', (-hr.top * 0.12 - 40).toFixed(0));
       }
+      if (ar && ar.bottom > 0 && ar.top < vh) setVar(aboutImg, '--py', (((ar.top + ar.height / 2) - vh / 2) * -0.08).toFixed(0));
 
       // Quote words light up between 85% and 35% of the viewport.
-      if (quoteWords.length) {
-        const qr = quote.getBoundingClientRect();
+      if (qr && qr.bottom > -vh && qr.top < vh * 2) {
         const t = clamp((vh * 0.85 - qr.top) / (vh * 0.5 + qr.height * 0.5), 0, 1);
         const lit = Math.round(t * quoteWords.length);
         quoteWords.forEach((w, i) => w.classList.toggle('on', i < lit));
@@ -241,12 +256,12 @@
 
       // Stacked service cards shrink and dim as the next one covers them.
       services.forEach((card, i) => {
-        const next = services[i + 1];
-        if (!next) { card.style.setProperty('--s', 1); card.style.setProperty('--dim', 0); return; }
-        const cr = card.getBoundingClientRect(), nr = next.getBoundingClientRect();
-        const cover = clamp((cr.bottom - nr.top) / cr.height, 0, 1);
-        card.style.setProperty('--s', (1 - cover * 0.06).toFixed(4));
-        card.style.setProperty('--dim', (cover * 0.55).toFixed(3));
+        const next = sr[i + 1];
+        if (!next) { setVar(card, '--s', '1'); setVar(card, '--dim', '0'); return; }
+        const cr = sr[i];
+        const cover = clamp((cr.bottom - next.top) / cr.height, 0, 1);
+        setVar(card, '--s', (1 - cover * 0.06).toFixed(3));
+        setVar(card, '--dim', (cover * 0.55).toFixed(2));
       });
 
       // Marquee: steady drift plus a push from scroll speed.
@@ -264,13 +279,13 @@
     }
     lastY = y; lastT = now;
 
-    // Active section in the desktop nav.
-    let current = null;
-    sections.forEach((s, i) => { if (s.getBoundingClientRect().top < vh * 0.45) current = navLinks[i]; });
-    navLinks.forEach(a => a.setAttribute('aria-current', String(a === current)));
+    // Active section in the desktop nav and the side index.
+    let current = -1;
+    secTops.forEach((top, i) => { if (top < vh * 0.45) current = i; });
+    navLinks.forEach((a, i) => setAttr(a, 'aria-current', String(i === current)));
     let sideCurrent = -1;
-    sideSections.forEach((s, i) => { if (s.getBoundingClientRect().top < vh * 0.45) sideCurrent = i; });
-    sideLinks.forEach((a, i) => a.setAttribute('aria-current', String(i === sideCurrent)));
+    sideTops.forEach((top, i) => { if (top < vh * 0.45) sideCurrent = i; });
+    sideLinks.forEach((a, i) => setAttr(a, 'aria-current', String(i === sideCurrent)));
 
     if (marqueeVisible && !reduced && !document.hidden) frame = requestAnimationFrame(scene);
   }

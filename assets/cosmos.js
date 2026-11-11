@@ -221,10 +221,12 @@
   function layout() {
     // Measure the layer itself, so the drawing always matches what is on screen.
     W = layer.clientWidth || innerWidth; H = layer.clientHeight || innerHeight; mobile = W <= 700;
-    dpr = Math.min(devicePixelRatio || 1, mobile ? 1.5 : 1.25);
+    dpr = Math.min(devicePixelRatio || 1, mobile ? 1.25 : 1.25);
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (mobile) { hole.R = 19; hole.x = W - 58; hole.y = Math.max(150, H * 0.19); }
+    // Phones: a larger hole, centred in the free band between the header and the hero text.
+    // (Same numbers as the intro script in index.html.)
+    if (mobile) { hole.R = clamp(W * 0.09, 30, 42); hole.x = W * 0.72; hole.y = 262; }
     else {
       hole.R = clamp(W * 0.042, 40, 72); hole.x = W - clamp(W * 0.19, 160, 360); hole.y = H * 0.59;
       // The crane sits under the hole: size it to the free space, and lift the hole if needed,
@@ -241,24 +243,34 @@
     const sc = mobile ? 110 : 230;
     for (let i = 0; i < sc; i++) stars.push({ x: rand(0, W), y: rand(0, H), z: rand(.15, 1), r: rand(.3, 1.5), tw: rand(.4, 1.8), ph: rand(0, TAU) });
     disk.length = 0;
-    const dc = mobile ? 110 : 280;
+    const dc = mobile ? 170 : 280;
     for (let i = 0; i < dc; i++) {
       const rr = hole.R * (1.35 + Math.pow(Math.random(), 1.6) * 2.4);
       disk.push({ a: rand(0, TAU), r: rr, w: 1.4 / Math.pow(rr / hole.R, 1.5), s: rand(.5, 1.6), h: Math.random() });
     }
     zonesAt = -1e9;
     placeOrbit();
+    holeBg = null;
   }
 
   const maskSel = '.service-inner,.fact,.about-img,.contact-inner,.map-card,.regulation,.doc,.hero-media,.section-head,.quote,.hero-row,.process-step,.cycle-visual,.marquee,.foot-top,.faq-head,.faq-item';
   const textSel = '.doc,.section-head,.quote,.hero-row,.process-step,.marquee,.foot-top,.faq-head,.faq-item';
+  // Element list and per-element facts (corner radius, kind) are looked up once, not every refresh.
+  let zoneEls = null;
+  const zoneInfo = new WeakMap();
   function refreshZones() {
     zones = [];
-    document.querySelectorAll(maskSel).forEach(el => {
+    if (!zoneEls) zoneEls = [...document.querySelectorAll(maskSel)];
+    zoneEls.forEach(el => {
       const r = el.getBoundingClientRect();
       if (r.bottom < 0 || r.top > H || r.width < 20) return;
-      // z[5]: transparent text block (opaque cards hide the background on their own).
-      zones.push([r.left, r.top, r.width, r.height, Math.min(28, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0), el.matches(textSel)]);
+      let info = zoneInfo.get(el);
+      if (!info) {
+        // [radius, transparent text block, hero text (on phones the hole may glow behind it)]
+        info = [Math.min(28, parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0), el.matches(textSel), el.matches('.hero-row')];
+        zoneInfo.set(el, info);
+      }
+      zones.push([r.left, r.top, r.width, r.height, info[0], info[1], info[2]]);
     });
   }
 
@@ -337,38 +349,92 @@
     return [hole.x + cx * Math.cos(rot) - cy * Math.sin(rot), hole.y + cx * Math.sin(rot) + cy * Math.cos(rot)];
   }
 
+  // Disk strokes are grouped by colour and brightness, so the whole disk is ~16 draw calls, not hundreds.
+  const DISK_COL = ['235,252,255', '140,236,250', '120,110,235', '70,170,220'];
+  const DISK_W = [1.62, 1.26, 0.84, 0.84];
+  const diskBuckets = Array.from({ length: 16 }, () => []);
   function drawDisk(front, tilt, rot) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
+    const cr = Math.cos(rot), sr = Math.sin(rot);
     for (let i = 0; i < disk.length; i++) {
       const p = disk[i];
-      const isFront = Math.sin(p.a) > 0;
-      if (isFront !== front) continue;
-      const [x, y] = diskPoint(p, tilt, rot);
+      if ((Math.sin(p.a) > 0) !== front) continue;
+      const ca = Math.cos(p.a) * p.r, sa = Math.sin(p.a) * p.r * tilt;
       const prevA = p.a - 0.12 * p.s;
-      const px = hole.x + (Math.cos(prevA) * p.r) * Math.cos(rot) - (Math.sin(prevA) * p.r * tilt) * Math.sin(rot);
-      const py = hole.y + (Math.cos(prevA) * p.r) * Math.sin(rot) + (Math.sin(prevA) * p.r * tilt) * Math.cos(rot);
+      const cb = Math.cos(prevA) * p.r, sb = Math.sin(prevA) * p.r * tilt;
       const heat = 1 - (p.r / hole.R - 1.35) / 2.4;
       const doppler = 0.55 + 0.45 * -Math.cos(p.a);
       const alpha = clamp((0.18 + heat * 0.55) * doppler, 0.05, 0.9);
       // Hot inner disk is white-cyan; the cooler outer rim drifts toward blue-violet.
-      ctx.strokeStyle = heat > .7 ? `rgba(235,252,255,${alpha})` : heat > .4 ? `rgba(140,236,250,${alpha})` : p.h > .5 ? `rgba(120,110,235,${alpha * .9})` : `rgba(70,170,220,${alpha * .9})`;
-      ctx.lineWidth = .6 + heat * 1.2;
-      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
+      const cls = heat > .7 ? 0 : heat > .4 ? 1 : p.h > .5 ? 2 : 3;
+      const a = cls > 1 ? alpha * .9 : alpha;
+      const lvl = Math.min(3, (a / 0.9 * 4) | 0);
+      diskBuckets[cls * 4 + lvl].push(
+        hole.x + cb * cr - sb * sr, hole.y + cb * sr + sb * cr,
+        hole.x + ca * cr - sa * sr, hole.y + ca * sr + sa * cr);
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 16; k++) {
+      const seg = diskBuckets[k];
+      if (!seg.length) continue;
+      ctx.strokeStyle = `rgba(${DISK_COL[k >> 2]},${((k & 3) + .6) / 4 * .9})`;
+      ctx.lineWidth = DISK_W[k >> 2] * (mobile ? 1.35 : 1);
+      ctx.beginPath();
+      for (let i = 0; i < seg.length; i += 4) { ctx.moveTo(seg[i], seg[i + 1]); ctx.lineTo(seg[i + 2], seg[i + 3]); }
+      ctx.stroke();
+      seg.length = 0;
     }
     ctx.restore();
   }
 
+  // The glow, the horizon and the photon ring never change shape, so they are painted once
+  // into small offscreen images and simply stamped each frame (the blur used to be redrawn 60x/s).
+  let holeBg = null, holeCore = null, holeRing = null, ringSize = 0;
+  function sprite(size) {
+    const c = document.createElement('canvas');
+    c.width = c.height = Math.ceil(size * dpr);
+    const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return [c, x];
+  }
+  function buildHoleSprites() {
+    const R = hole.R, boost = mobile ? 2.1 : 1;
+    // Outer glow + violet haze.
+    let [c, x] = sprite(R * 10); let m = R * 5;
+    let g = x.createRadialGradient(m, m, R * .8, m, m, R * 5);
+    g.addColorStop(0, `rgba(60,190,230,${(.18 * boost).toFixed(3)})`); g.addColorStop(.35, `rgba(25,110,160,${(.07 * boost).toFixed(3)})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(m, m, R * 5, 0, TAU); x.fill();
+    g = x.createRadialGradient(m, m, R * .95, m, m, R * 2.6);
+    g.addColorStop(0, `rgba(118,78,226,${(.32 * boost).toFixed(3)})`); g.addColorStop(.45, `rgba(70,52,170,${(.12 * boost).toFixed(3)})`); g.addColorStop(1, 'rgba(30,20,80,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(m, m, R * 2.6, 0, TAU); x.fill();
+    holeBg = c;
+    // Event horizon: true black in the middle, deepening into indigo and violet at the rim,
+    // with the darkest point slightly off-centre so it reads as a sphere, not a flat disc.
+    [c, x] = sprite(R * 2.4); m = R * 1.2;
+    g = x.createRadialGradient(m - R * .12, m - R * .1, 0, m, m, R * 1.12);
+    g.addColorStop(0, '#000000'); g.addColorStop(.5, '#020108'); g.addColorStop(.72, '#080418');
+    g.addColorStop(.86, '#170c38'); g.addColorStop(.94, 'rgba(52,30,112,.95)'); g.addColorStop(1, 'rgba(20,10,50,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(m, m, R * 1.12, 0, TAU); x.fill();
+    // A faint grey-blue sheen across the shadow, like starlight bent around it.
+    g = x.createLinearGradient(m - R, m - R, m + R, m + R);
+    g.addColorStop(0, 'rgba(120,140,200,.07)'); g.addColorStop(.5, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(110,70,200,.06)');
+    x.fillStyle = g; x.beginPath(); x.arc(m, m, R * .98, 0, TAU); x.fill();
+    holeCore = c;
+    // Photon ring: white-cyan edge with a violet bloom (blurred once, here).
+    ringSize = R * 2.1 + 80; [c, x] = sprite(ringSize); m = ringSize / 2;
+    x.globalCompositeOperation = 'lighter';
+    x.beginPath(); x.arc(m, m, R * 1.03, 0, TAU);
+    x.strokeStyle = `rgba(150,110,255,${Math.min(.85, .38 * boost)})`; x.lineWidth = mobile ? 5 : 4;
+    x.shadowColor = 'rgba(130,90,255,.9)'; x.shadowBlur = 22; x.stroke();
+    x.beginPath(); x.arc(m, m, R * 1.02, 0, TAU);
+    x.strokeStyle = 'rgba(200,248,255,.7)'; x.lineWidth = mobile ? 1.6 : 1.2;
+    x.shadowColor = 'rgba(94,228,245,.9)'; x.shadowBlur = 12; x.stroke();
+    holeRing = c;
+  }
+
   function drawHole(now) {
     const R = hole.R, tilt = .26, rot = -0.2;
-    // Outer glow
-    const glow = ctx.createRadialGradient(hole.x, hole.y, R * .8, hole.x, hole.y, R * 5);
-    glow.addColorStop(0, 'rgba(60,190,230,.18)'); glow.addColorStop(.35, 'rgba(25,110,160,.07)'); glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(hole.x, hole.y, R * 5, 0, TAU); ctx.fill();
-    // A deep violet haze right around the horizon gives the "light being swallowed" feel.
-    const haze = ctx.createRadialGradient(hole.x, hole.y, R * .95, hole.x, hole.y, R * 2.6);
-    haze.addColorStop(0, 'rgba(118,78,226,.32)'); haze.addColorStop(.45, 'rgba(70,52,170,.12)'); haze.addColorStop(1, 'rgba(30,20,80,0)');
-    ctx.fillStyle = haze; ctx.beginPath(); ctx.arc(hole.x, hole.y, R * 2.6, 0, TAU); ctx.fill();
+    if (!holeBg) buildHoleSprites();
+    ctx.drawImage(holeBg, hole.x - R * 5, hole.y - R * 5, R * 10, R * 10);
     drawDisk(false, tilt, rot);
     // Lensed back of the disk bends over the top of the shadow.
     ctx.save();
@@ -377,42 +443,25 @@
     for (let k = 0; k < 3; k++) {
       ctx.beginPath();
       ctx.ellipse(0, -R * .06, R * (1.28 + k * .1), R * (1.18 + k * .1), 0, Math.PI * 1.04, Math.PI * 1.96);
-      ctx.strokeStyle = `rgba(${k === 0 ? '230,252,255' : k === 1 ? '120,225,250' : '150,110,250'},${(.42 - k * .12) * (0.85 + 0.15 * Math.sin(now * .002 + k))})`;
+      ctx.strokeStyle = `rgba(${k === 0 ? '230,252,255' : k === 1 ? '120,225,250' : '150,110,250'},${((.42 - k * .12) * (0.85 + 0.15 * Math.sin(now * .002 + k))).toFixed(3)})`;
       ctx.lineWidth = k ? 3 : 1.6; ctx.stroke();
     }
     ctx.beginPath(); ctx.ellipse(0, R * .1, R * 1.18, R * .9, 0, Math.PI * .12, Math.PI * .88);
     ctx.strokeStyle = 'rgba(120,225,250,.22)'; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.restore();
-    // Event horizon
-    // Event horizon: true black in the middle, deepening into indigo and violet at the rim,
-    // with the darkest point slightly off-centre so it reads as a sphere, not a flat disc.
-    const core = ctx.createRadialGradient(hole.x - R * .12, hole.y - R * .1, 0, hole.x, hole.y, R * 1.12);
-    core.addColorStop(0, '#000000');
-    core.addColorStop(.5, '#020108');
-    core.addColorStop(.72, '#080418');
-    core.addColorStop(.86, '#170c38');
-    core.addColorStop(.94, 'rgba(52,30,112,.95)');
-    core.addColorStop(1, 'rgba(20,10,50,0)');
-    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(hole.x, hole.y, R * 1.12, 0, TAU); ctx.fill();
-    // A faint grey-blue sheen across the shadow, like starlight bent around it.
-    const sheen = ctx.createLinearGradient(hole.x - R, hole.y - R, hole.x + R, hole.y + R);
-    sheen.addColorStop(0, 'rgba(120,140,200,.07)'); sheen.addColorStop(.5, 'rgba(0,0,0,0)'); sheen.addColorStop(1, 'rgba(110,70,200,.06)');
-    ctx.fillStyle = sheen; ctx.beginPath(); ctx.arc(hole.x, hole.y, R * .98, 0, TAU); ctx.fill();
-    // Photon ring: white-cyan edge with a violet bloom.
-    ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    ctx.beginPath(); ctx.arc(hole.x, hole.y, R * 1.03, 0, TAU);
-    ctx.strokeStyle = `rgba(150,110,255,${.35 + .12 * Math.sin(now * .002)})`; ctx.lineWidth = 4;
-    ctx.shadowColor = 'rgba(130,90,255,.9)'; ctx.shadowBlur = 22; ctx.stroke();
-    ctx.beginPath(); ctx.arc(hole.x, hole.y, R * 1.02, 0, TAU);
-    ctx.strokeStyle = `rgba(200,248,255,${.6 + .2 * Math.sin(now * .003)})`; ctx.lineWidth = 1.2;
-    ctx.shadowColor = 'rgba(94,228,245,.9)'; ctx.shadowBlur = 12; ctx.stroke();
+    ctx.drawImage(holeCore, hole.x - R * 1.2, hole.y - R * 1.2, R * 2.4, R * 2.4);
+    // The ring breathes by fading the stamped image in and out.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha *= 0.8 + 0.2 * Math.sin(now * .0025);
+    ctx.drawImage(holeRing, hole.x - ringSize / 2, hole.y - ringSize / 2, ringSize, ringSize);
     ctx.restore();
     drawDisk(true, tilt, rot);
   }
 
   function render(now) {
     ctx.clearRect(0, 0, W, H);
-    if (now - zonesAt > 160) {
+    if (now - zonesAt > (mobile ? 300 : 200)) {
       refreshZones(); zonesAt = now;
       // Crane and gears fade back whenever text would sit on top of them.
       [crane, gears].forEach(el => {
@@ -428,11 +477,11 @@
       });
     }
 
-    // Nodes, links and effects
+    // Nodes, links and effects — grouped by brightness so each group is one draw call.
     ctx.lineCap = 'round';
     const linkDist = mobile ? 90 : 120, maxLinks = mobile ? 2 : 3;
     const counts = new Uint8Array(nodes.length);
-    ctx.lineWidth = .7;
+    const linkB = [[], [], [], []];
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
       for (let j = i + 1; j < nodes.length; j++) {
@@ -444,29 +493,49 @@
         if (d > linkDist) continue;
         const bend = (a.hot + b.hot) * .25;
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y);
-        ctx.quadraticCurveTo(mx + (hole.x - mx) * bend, my + (hole.y - my) * bend, b.x, b.y);
-        ctx.strokeStyle = `rgba(110,233,255,${(1 - d / linkDist) * .24})`; ctx.stroke();
+        linkB[Math.min(3, ((1 - d / linkDist) * 4) | 0)].push(a.x, a.y, mx + (hole.x - mx) * bend, my + (hole.y - my) * bend, b.x, b.y);
         counts[i]++; counts[j]++;
       }
     }
+    ctx.lineWidth = .7;
+    linkB.forEach((seg, lvl) => {
+      if (!seg.length) return;
+      ctx.strokeStyle = `rgba(110,233,255,${((lvl + .5) / 4 * .24).toFixed(3)})`;
+      ctx.beginPath();
+      for (let k = 0; k < seg.length; k += 6) { ctx.moveTo(seg[k], seg[k + 1]); ctx.quadraticCurveTo(seg[k + 2], seg[k + 3], seg[k + 4], seg[k + 5]); }
+      ctx.stroke();
+    });
     if (mouse.on) {
       nodes.forEach(n => {
         const d = Math.hypot(n.x - mouse.x, n.y - mouse.y);
         if (d < 150) { ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(mouse.x, mouse.y); ctx.strokeStyle = `rgba(160,240,255,${(1 - d / 150) * .35})`; ctx.stroke(); }
       });
     }
-    for (const n of nodes) {
-      const tr = n.trail;
-      if (tr.length > 3) {
-        ctx.beginPath(); ctx.moveTo(tr[0], tr[1]);
+    // Trails: calm ones together, the ones falling into the hole in two brighter groups.
+    const TRAIL = [['rgba(110,233,255,.18)', .8], ['rgba(150,236,255,.38)', 1.15], ['rgba(150,236,255,.62)', 1.6]];
+    for (let g = 0; g < 3; g++) {
+      ctx.beginPath(); let any = false;
+      for (const n of nodes) {
+        const grp = n.hot > .1 ? (n.hot > .5 ? 2 : 1) : 0;
+        if (grp !== g || n.trail.length <= 3) continue;
+        const tr = n.trail; ctx.moveTo(tr[0], tr[1]);
         for (let k = 2; k < tr.length; k += 2) ctx.lineTo(tr[k], tr[k + 1]);
-        ctx.strokeStyle = n.hot > .1 ? `rgba(150,236,255,${.2 + n.hot * .5})` : 'rgba(110,233,255,.18)';
-        ctx.lineWidth = .8 + n.hot; ctx.stroke();
+        any = true;
       }
-      const fade = Math.min(1, n.age * 2) * (n.age > n.life ? Math.max(0, 1 - (n.age - n.life)) : 1);
-      ctx.beginPath(); ctx.arc(n.x, n.y, n.size * (1 + n.hot * .6), 0, TAU);
-      ctx.fillStyle = `rgba(${n.hot > .3 ? '240,253,255' : '210,248,255'},${(.55 + n.hot * .4) * Math.max(.25, fade)})`; ctx.fill();
+      if (any) { ctx.strokeStyle = TRAIL[g][0]; ctx.lineWidth = TRAIL[g][1]; ctx.stroke(); }
+    }
+    // Dots: two colours x three brightness levels.
+    for (let g = 0; g < 6; g++) {
+      ctx.beginPath(); let any = false;
+      for (const n of nodes) {
+        const fade = Math.min(1, n.age * 2) * (n.age > n.life ? Math.max(0, 1 - (n.age - n.life)) : 1);
+        const a = (.55 + n.hot * .4) * Math.max(.25, fade);
+        const grp = (n.hot > .3 ? 3 : 0) + Math.min(2, (a * 3) | 0);
+        if (grp !== g) continue;
+        const r = n.size * (1 + n.hot * .6);
+        ctx.moveTo(n.x + r, n.y); ctx.arc(n.x, n.y, r, 0, TAU); any = true;
+      }
+      if (any) { ctx.fillStyle = `rgba(${g > 2 ? '240,253,255' : '210,248,255'},${(((g % 3) + .6) / 3).toFixed(2)})`; ctx.fill(); }
     }
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i], p = (now - e.t) / e.life;
@@ -497,26 +566,32 @@
     ctx.restore();
 
     // Stars go underneath everything already drawn; fast scrolling stretches them.
+    // They are drawn in six brightness groups (one fill each) instead of one call per star.
     ctx.save();
     ctx.globalCompositeOperation = 'destination-over';
-    // Only a fast flick turns stars into short light streaks.
     const sv = Math.abs(scrollVel), streak = sv > 900 ? Math.sign(scrollVel) * Math.min(26, (sv - 900) * 0.01) : 0;
-    for (const s of stars) {
-      const tw = .3 + .7 * (.5 + .5 * Math.sin(now * .00065 * s.tw + s.ph));
-      const a = .12 + tw * .38 * s.z;
-      if (Math.abs(streak) > 2 && s.z > .55) {
-        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x, s.y + streak * s.z);
-        ctx.strokeStyle = `rgba(190,242,255,${a})`; ctx.lineWidth = s.r; ctx.stroke();
-      } else {
-        ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU);
-        ctx.fillStyle = `rgba(190,242,255,${a})`; ctx.fill();
+    const LV = 6;
+    for (let g = 0; g < LV; g++) {
+      ctx.beginPath(); let anyDot = false;
+      for (const s of stars) {
+        const tw = .3 + .7 * (.5 + .5 * Math.sin(now * .00065 * s.tw + s.ph));
+        const a = .12 + tw * .38 * s.z;
+        if (Math.min(LV - 1, ((a - .12) / .38 * LV) | 0) !== g) continue;
+        if (Math.abs(streak) > 2 && s.z > .55) continue;
+        ctx.moveTo(s.x + s.r, s.y); ctx.arc(s.x, s.y, s.r, 0, TAU); anyDot = true;
       }
+      if (anyDot) { ctx.fillStyle = `rgba(190,242,255,${(.12 + (g + .5) / LV * .38).toFixed(3)})`; ctx.fill(); }
+    }
+    if (Math.abs(streak) > 2) {
+      ctx.strokeStyle = 'rgba(190,242,255,.35)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (const s of stars) if (s.z > .55) { ctx.moveTo(s.x, s.y); ctx.lineTo(s.x, s.y + streak * s.z); }
+      ctx.stroke();
     }
     ctx.restore();
 
     // The hole dims while text sits over it and returns in the open space between blocks.
     const reach = hole.R * 3.6;
-    const covered = zones.some(z => hole.x + reach > z[0] && hole.x - reach < z[0] + z[2] && hole.y + reach * .5 > z[1] && hole.y - reach * .5 < z[1] + z[3]);
+    const covered = zones.some(z => !(mobile && z[6]) && hole.x + reach > z[0] && hole.x - reach < z[0] + z[2] && hole.y + reach * .5 > z[1] && hole.y - reach * .5 < z[1] + z[3]);
     holeAlpha += ((covered ? .16 : 1) - holeAlpha) * .06;
     orbit.style.opacity = (Math.max(0, holeAlpha - .2) / .8 * .5).toFixed(3);
     ctx.save();
@@ -544,8 +619,11 @@
     }
     step(now, dt);
     render(now);
-    updateCrane(now);
-    updateGears(now, dt);
+    // The crane and gears are only redrawn while they can actually be seen.
+    const bc = document.body.classList;
+    const mechShown = !bc.contains('at-footer');
+    if (mechShown && (!mobile || bc.contains('past-hero')) && !crane.classList.contains('is-dim')) updateCrane(now);
+    if (mechShown && bc.contains('past-hero') && !gears.classList.contains('is-dim')) updateGears(now, dt);
     raf = requestAnimationFrame(frame);
   }
   layout();
